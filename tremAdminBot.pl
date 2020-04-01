@@ -249,7 +249,7 @@ $send[ SEND_SCREEN ] = sub
   my @cmd = ( $screenPath );
   push( @cmd, '-S', $screenName ) if( $screenName ne '' );
   push( @cmd, '-p', $screenWindow ) if( $screenWindow ne '' );
-  push( @cmd, qw/-q -X stuff/, "\b" x 30 . $_[ 0 ] . "\n" );
+  push( @cmd, qr/-X stuff/, "\033[B" . $_[0] . "\n" );
   warn( "screen returned $?\n" ) if( system( @cmd ) != 0 );
 };
 my $sendq;
