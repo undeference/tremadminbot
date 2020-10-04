@@ -41,7 +41,6 @@ sub
 
     my $memoname = lc( shift( @split ) );
     my $memo = join( " ", @split );
-    my $memoq = $db->quote( $memo );
 
     my @matches;
     my $lastmatch;
@@ -50,8 +49,8 @@ sub
     # by userID
     if( $memoname =~ /^\d+$/ )
     {
-      my $q = $db->prepare( "SELECT userID, name FROM users WHERE userID=$memoname" );
-      $q->execute( );
+      my $q = $db->prepare_cached( "SELECT userID, name FROM users WHERE userID=?" );
+      $q->execute( $memoname );
       if( my $ref = $q->fetchrow_hashref )
       {
         $lastmatch = $memoname;
@@ -66,11 +65,10 @@ sub
     else
     {
       $memoname =~ tr/\"//d;
-      my $memonameq = $db->quote( $memoname );
-      my $memonamelq = $db->quote( "\%" . $memoname . "\%" );
+      my $memonamelq = "%" . $memoname . "%";
 
-      my $q = $db->prepare( "SELECT userID, name, seenTime FROM users WHERE useCount > 10 AND name LIKE ${memonamelq} AND seenTime > datetime( ${timestamp}, \'-3 months\' ) ORDER BY CASE WHEN name = ${memonameq} then 999999 else useCount END DESC LIMIT 10" );
-      $q->execute;
+      my $q = $db->prepare_cached( "SELECT userID, name, seenTime FROM users WHERE useCount > 10 AND name LIKE ? AND seenTime > datetime( ?, \'-3 months\' ) ORDER BY CASE WHEN name = ? then 999999 else useCount END DESC LIMIT 10" );
+      $q->execute( $memonamelq, $timestamp, $memoname );
 
       my $i = 0;
       while( my $ref = $q->fetchrow_hashref( ) )
@@ -86,7 +84,8 @@ sub
     if( $exact >= 0 || @matches == 1 )
     {
       $exact ||= 0; # warning
-      $db->do( "INSERT INTO memos (userID, sentBy, sentTime, msg) VALUES ($matches[ $exact ]{ 'userID' }, $user->{userID}, ${timestamp}, ${memoq})" );
+      my $st = $db->prepare_cached( "INSERT INTO memos (userID, sentBy, sentTime, msg) VALUES (?, ?, ?, ?)" );
+      $st->execute( $matches[ $exact ]{ 'userID' }, $user->{userID}, $timestamp, $memo );
       replyToPlayer( $user, "^3memo:^7 memo left for $matches[ $exact ]{ 'name' }" );
     }
     elsif( scalar @matches > 1 )
@@ -104,8 +103,8 @@ sub
   }
   elsif( $memocmd eq "list" )
   {
-    my $q = $db->prepare( "SELECT memos.memoID, memos.readTime, users.name FROM memos JOIN users ON users.userID = memos.sentBy WHERE memos.userID = $user->{userID} ORDER BY memoID ASC" );
-    $q->execute;
+    my $q = $db->prepare_cached( "SELECT memos.memoID, memos.readTime, users.name FROM memos JOIN users ON users.userID = memos.sentBy WHERE memos.userID = ? ORDER BY memoID ASC" );
+    $q->execute( $user->{userID} );
 
     my @memos;
     my @readMemos;
@@ -139,10 +138,9 @@ sub
       replyToPlayer( $user, "^3memo:^7 usage: memo read <memoID>" );
       return;
     }
-    my $memoIDq = $db->quote( $memoID );
 
-    my $q = $db->prepare( "SELECT memos.memoID, memos.sentTime, memos.msg, users.name FROM memos JOIN users ON users.userID = memos.sentBy WHERE memos.memoID = ${memoIDq} AND memos.userID = $user->{userID}" );
-    $q->execute;
+    my $q = $db->prepare_cached( "SELECT memos.memoID, memos.sentTime, memos.msg, users.name FROM memos JOIN users ON users.userID = memos.sentBy WHERE memos.memoID = ? AND memos.userID = ?" );
+    $q->execute( $memoID, $user->{userID} );
     if( my $ref = $q->fetchrow_hashref( ) )
     {
       my $id = $ref->{ 'memoID' };
@@ -153,7 +151,8 @@ sub
       replyToPlayer( $user, "Memo: ${id} From: ${from} Sent: ${sentTime}" );
       replyToPlayer( $user, " Msg: ${msg}" );
 
-      $db->do( "UPDATE memos SET readTime=${timestamp} WHERE memoID=${memoIDq}" );
+      my $st = $db->prepare_cached( "UPDATE memos SET readTime=? WHERE memoID=?" );
+      $st->execute( $timestamp, $memoID );
     }
     else
     {
@@ -162,8 +161,8 @@ sub
   }
   elsif( $memocmd eq "outbox" )
   {
-    my $q = $db->prepare( "SELECT memos.memoID, users.name FROM memos JOIN users ON users.userID = memos.userID WHERE memos.sentBy = $user->{userID} AND memos.readTime IS NULL ORDER BY memoID ASC" );
-    $q->execute;
+    my $q = $db->prepare_cached( "SELECT memos.memoID, users.name FROM memos JOIN users ON users.userID = memos.userID WHERE memos.sentBy = ? AND memos.readTime IS NULL ORDER BY memoID ASC" );
+    $q->execute( $user->{userID} );
 
     my @memos;
     while( my $ref = $q->fetchrow_hashref( ) )
@@ -185,9 +184,8 @@ sub
       return;
     }
 
-    my $memoIDq = $db->quote( $memoID );
-
-    my $count = $db->do( "DELETE FROM memos WHERE sentBy = $user->{userID} AND memoID = ${memoIDq}" );
+    my $st = $db->prepare_cached( "DELETE FROM memos WHERE sentBy = ? AND memoID = ?" );
+    my $count = $db->execute( $user->{userID}, $memoID );
     if( $count ne "0E0" )
     {
       replyToPlayer( $user, "^3memo:^7 deleted sent memo ${memoID}" );
@@ -209,13 +207,15 @@ sub
 
     if( $clearcmd eq "all" )
     {
-      my $count = $db->do( "DELETE FROM memos WHERE userID = $user->{userID}" );
+      my $st = $db->prepare_cached( "DELETE FROM memos WHERE userID = ?" );
+      my $count = $db->execute( $user->{userID} );
       $count = 0 if( $count eq "0E0" );
       replyToPlayer( $user, "^3memo:^7 cleared ${count} memos" );
     }
     elsif( $clearcmd eq "read" )
     {
-      my $count = $db->do( "DELETE FROM memos WHERE userID = $user->{userID} AND readTime IS NOT NULL" );
+      my $st = $db->prepare_cached( "DELETE FROM memos WHERE userID = ? AND readTime IS NOT NULL" );
+      my $count = $st->execute( $user->{userID} );
       $count = 0 if( $count eq "0E0" );
       replyToPlayer( $user, "^3memo:^7 cleared ${count} read memos" );
     }

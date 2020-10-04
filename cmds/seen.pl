@@ -30,10 +30,9 @@ sub
   }
 
   $seenstring = lc( $seenstring );
-  my $seenstringq = $db->quote( $seenstring );
-  my $seenstringlq = $db->quote( "\%" . $seenstring . "\%" );
-  my $q = $db->prepare( "SELECT names.name, names.useCount, users.seenTime, users.name AS rname FROM names, users WHERE names.userID = users.userID AND names.name LIKE $seenstringlq ORDER BY CASE WHEN names.name = $seenstringq THEN 999999 ELSE names.useCount END DESC LIMIT 4" );
-  $q->execute;
+  my $seenstringlq = "%" . $seenstring . "%";
+  my $q = $db->prepare_cached( "SELECT names.name, names.useCount, users.seenTime, users.name AS rname FROM names, users WHERE names.userID = users.userID AND names.name LIKE ? ORDER BY CASE WHEN names.name = ? THEN 999999 ELSE names.useCount END DESC LIMIT 4" );
+  $q->execute( $seenstringlq, $seenstring );
 
   my $rescount = 0;
   while( my $ref = $q->fetchrow_hashref( ) )
@@ -56,4 +55,5 @@ sub
   {
     replyToPlayer( $user, "^3seen:^7 Player ${seenstring} not found" );
   }
+  $q->finish;
 };

@@ -544,9 +544,9 @@ while( 1 )
         $connectedUsers[ $slot ]{ 'GUID' } = $guid;
         my $userID = $connectedUsers[ $slot ]{ 'userID' };
 
-        my $anameq = $db->quote( $aname );
-
-        $db->do( "UPDATE users SET name=${anameq} WHERE userID=${userID}" );
+        my $st = $db->prepare_cached( "UPDATE users SET name=? WHERE userID=?" );
+        $st->execute( $aname, $userID );
+        $st->finish;
       }
       elsif( $arg0 eq "ClientRename" )
       {
@@ -579,7 +579,6 @@ while( 1 )
         my $acmdargs = "";
         $acmdargs = join( " ", @toks[ 7 .. $#toks ] ) if( scalar @toks >= 7 );
 
-        my $nameq = $db->quote( $name );
         $acmd = lc( $acmd );
 
         my $userID = $connectedUsers[ $slot ]{ 'userID' };
@@ -651,9 +650,9 @@ while( 1 )
           }
           my( $targslot, $targGUID, $targName, $reason ) = @_;
           my $targUserID = $connectedUsers[ $targslot ]{ 'userID' };
-          my $targIPq = $db->quote( $connectedUsers[ $targslot ]{ 'IP' } );
-          my $reasonq = $db->quote( $reason );
-          $db->do( "INSERT INTO demerits (userID, demeritType, admin, timeStamp, ip, reason) VALUES ( ${targUserID}, " . DEM_KICK . ", ${userID}, ${timestamp}, ${targIPq}, ${reasonq} )" );
+          my $st = $db->prepare_cached( "INSERT INTO demerits (userID, demeritType, admin, timeStamp, ip, reason) VALUES( ?, ?, ?, ?, ?, ? )" );
+          $st->execute( $targUserID, DEM_KICK, $userID, $timestamp, $connectedUsers[ $targslot ]{ 'IP' }, $reason );
+          $st->finish;
         }
         elsif( $acmd eq "ban" )
         {
@@ -670,10 +669,9 @@ while( 1 )
             print( "Error: ban on unknown guid ${targGUID}\n" );
             next;
           }
-
-          my $targIPq = $db->quote( $targIP );
-          my $reasonq = $db->quote( $reason );
-          $db->do( "INSERT INTO demerits (userID, demeritType, admin, timeStamp, ip, reason, duration) VALUES ( ${targUserID}, " . DEM_BAN . ", ${userID}, ${timestamp}, ${targIPq}, ${reasonq}, $duration )" );
+          my $st = $db->prepare_cached( "INSERT INTO demerits (userID, demeritType, admin, timeStamp, ip, reason, duration) VALUES ( ?, ?, ?, ?, ?, ?, ? )" );
+          $st->execute( $targUserID, DEM_BAN, $userID, $timestamp, $targIP, $reason, $duration );
+          $st->finish;
         }
         elsif( $acmd eq "mute" )
         {
@@ -684,8 +682,9 @@ while( 1 )
           }
           my( $targslot, $targGUID, $targName ) = @_;
           my $targUserID = $connectedUsers[ $targslot ]{ 'userID' };
-          my $targIPq = $db->quote( $connectedUsers[ $targslot ]{ 'IP' } );
-          $db->do( "INSERT INTO demerits (userID, demeritType, admin, timeStamp, ip) VALUES ( ${targUserID}, " . DEM_MUTE . ", ${userID}, ${timestamp}, ${targIPq} )" );
+          my $st = $db->prepare_cached( "INSERT INTO demerits (userID, demeritType, admin, timeStamp, ip) VALUES ( ?, ?, ?, ?, ? )" );
+          $st->execute( $targUserID, DEM_MUTE, $userID, $timestamp, $connectedUsers[ $targslot ]{ 'IP' } );
+          $st->finish;
         }
         elsif( $acmd eq "denybuild" )
         {
@@ -696,8 +695,9 @@ while( 1 )
           }
           my( $targslot, $targGUID, $targName ) = @_;
           my $targUserID = $connectedUsers[ $targslot ]{ 'userID' };
-          my $targIPq = $db->quote( $connectedUsers[ $targslot ]{ 'IP' } );
-          $db->do( "INSERT INTO demerits (userID, demeritType, admin, timeStamp, ip) VALUES ( ${targUserID}, " . DEM_DENYBUILD . ", ${userID}, ${timestamp}, ${targIPq} )" );
+          my $st = $db->prepare_cached( "INSERT INTO demerits (userID, demeritType, admin, timeStamp, ip) VALUES ( ?, ?, ?, ?, ? )" );
+          $st->execute( $targUserID, DEM_DENYBUILD, $userID, $timestamp, $connectedUsers[ $targslot ]{ 'IP' } );
+          $st->finish;
         }
       }
       # Unused at present but left here for if other people want to screw with it
@@ -797,20 +797,18 @@ sub updateUsers
 {
   my( $timestamp, $slot ) = @_;
   my $guid = $connectedUsers[ $slot ]{ 'GUID' };
-  my $guidq = $db->quote( $guid );
   my $name = lc( $connectedUsers[ $slot ]{ 'name' } );
-  my $nameq = $db->quote( $name );
   my $ip = $connectedUsers[ $slot ]{ 'IP' };
-  my $ipq = $db->quote( $ip );
 
-  my $usersq = $db->prepare( "SELECT userID FROM users WHERE GUID = ${guidq} LIMIT 1" );
-  $usersq->execute;
+  my $usersq = $db->prepare_cached( "SELECT userID FROM users WHERE GUID = ? LIMIT 1" );
+  $usersq->execute( $guid );
 
   my $user;
 
   if( $user = $usersq->fetchrow_hashref( ) )
   {
-    $db->do( "UPDATE users SET name=$nameq, useCount=useCount+1, seenTime=$timestamp, ip=$ipq WHERE userID=$user->{ userID }" );
+    my $st = $db->prepare_cahced( "UPDATE users SET name=?, useCount=useCount+1, seenTime=?, ip=? WHERE userID=?" );
+    $st->execute( $name, $timestamp, $ip, $user->{ 'userID' } );
   }
   else
   {
@@ -824,14 +822,14 @@ sub updateUsers
       $region = $gip->region;
       $country = $gip->country_name;
     }
-    $city = $db->quote( $city );
-    $region = $db->quote( $region );
-    $country = $db->quote( $country );
 
-    $db->do( "INSERT INTO users ( name, GUID, useCount, seenTime, IP, city, region, country ) VALUES ( ${nameq}, ${guidq}, 1, ${timestamp}, ${ipq}, ${city}, ${region}, ${country} )" );
-    $usersq->execute;
+    my $st = $db->prepare_cached( "INSERT INTO users ( name, GUID, useCount, seenTime, IP, city, region, country ) VALUES ( ?, ?, 1, ?, ?, ?, ?, ? )" );
+    $st->execute( $name, $guid, 1, $timestamp, $ip, $city, $region, $country );
+    $usersq->execute( $guid );
+    $st->finish;
     $user = $usersq->fetchrow_hashref( );
   }
+  $usersq->finish;
 
   my $userID = $user->{ 'userID' };
   $connectedUsers[ $slot ]{ 'userID' } = $userID;
@@ -845,27 +843,30 @@ sub updateNames
 {
   my( $slot ) = @_;
   my $name = lc( $connectedUsers[ $slot ]{ 'name' } );
-  my $nameq = $db->quote( $name );
   my $namec = $connectedUsers[ $slot ]{ 'nameColored' };
-  my $namecq = $db->quote( $namec );
   my $userID = $connectedUsers[ $slot ]{ 'userID' };
   my $nameID = "-1";
 
-  my $namesq = $db->prepare( "SELECT nameID FROM names WHERE name = ${nameq} AND userID = $userID LIMIT 1" );
-  $namesq->execute;
+  my $namesq = $db->prepare_cached( "SELECT nameID FROM names WHERE name = ? AND userID = ? LIMIT 1" );
+  $namesq->execute( $name, $userID );
 
   my $namesref;
 
   if( my $ref = $namesq->fetchrow_hashref( ) )
   {
     $nameID = $ref->{nameID};
-    $db->do( "UPDATE names SET useCount=useCount+1 WHERE nameID=$nameID" );
+    my $st = $db->prepare_cached( "UPDATE names SET useCount=useCount+1 WHERE nameID=?" );
+    $st->execute( $nameID );
+    $st->finish;
   }
   else
   {
-    $db->do( "INSERT INTO names ( name, nameColored, userID, useCount ) VALUES ( ${nameq}, ${namecq}, ${userID}, 1 )" );
+    my $st = $db->prepare_cached( "INSERT INTO names ( name, nameColored, userID, useCount ) VALUES ( ?, ?, ?, 1 )" );
+    $st->execute( $name, $namec, $userID, 1 );
     $nameID = $db->last_insert_id( undef, undef, "names", "nameID" );
+    $st->finish;
   }
+  $namesq->finish;
 }
 
 sub memocheck
@@ -874,11 +875,12 @@ sub memocheck
   my $name = $connectedUsers[ $slot ]{ 'name' };
   my $userID = $connectedUsers[ $slot ]{ 'userID' };
 
-  my $q = $db->prepare( "SELECT COUNT(1) FROM memos WHERE memos.userID = ${userID} AND memos.readTime IS NULL" );
-  $q->execute;
+  my $q = $db->prepare_cached( "SELECT COUNT(1) FROM memos WHERE memos.userID = ? AND memos.readTime IS NULL" );
+  $q->execute( $userID );
 
   my $ref = $q->fetchrow_hashref( );
   my $count = $ref->{ 'COUNT(1)' };
+  $q->finish;
 
   replyToPlayer( $connectedUsers[ $slot ], "You have ${count} new memos. Use /memo list to read." ) if( $count > 0 );
 
@@ -895,7 +897,7 @@ sub demerits
     # this sucks
     if( $value =~ s/^((?:\d{1,3}\.){3})\d{1,3}$/$1%/ )
     {
-      $dst = $db->prepare( "SELECT demeritType FROM demerits WHERE $r IP LIKE ?" );
+      $dst = $db->prepare_cahced( "SELECT demeritType FROM demerits WHERE $r IP LIKE ?" );
     }
     else
     {
@@ -906,7 +908,7 @@ sub demerits
   else
   {
     # ? is treated as a string (which userID is not), but that's probably okay
-    $dst = $db->prepare( "SELECT demeritType FROM demerits WHERE $r $type = ?" );
+    $dst = $db->prepare_cached( "SELECT demeritType FROM demerits WHERE $r $type = ?" );
   }
   unless( $dst )
   {
@@ -1056,14 +1058,14 @@ sub slotFromString
 sub userIDFromGUID
 {
   my ( $guid ) = @_;
-  my $guidq = $db->quote( $guid );
-  my $usersq = $db->prepare( "SELECT userID FROM users WHERE GUID = ${guidq} LIMIT 1" );
-  $usersq->execute;
+  my $usersq = $db->prepare_cached( "SELECT userID FROM users WHERE GUID = ? LIMIT 1" );
+  $usersq->execute( $guid );
 
   my $user;
 
   if( $user = $usersq->fetchrow_hashref( ) )
   {
+    $usersq->finish;
     return $user->{'userID'};
   }
   else
@@ -1078,14 +1080,11 @@ sub timestamp
   {
     my $out = $servertsstr;
     $out =~ tr{/}{-};
-    return( $db->quote( $out ) );
+    return $out;
   }
-  my $q = $db->prepare( "SELECT DATETIME('now','localtime')" );
-  $q->execute;
-  my $out = $q->fetchrow_array( );
 
-  $out = $db->quote( $out );
-  return $out;
+  my( $sec, $min, $hour, $day, $mon, $year ) = localtime;
+  return sprintf( "%04d-%02d-%02d %02d:%02d:%02d", $year + 1900, $mon, $day, $hour, $min, $sec );
 }
 
 sub errorHandler

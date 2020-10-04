@@ -37,8 +37,8 @@ sub
   }
 
   my $targUserID = $connectedUsers[ $targslot ]{ 'userID' };
-  my $namesq = $db->prepare( "SELECT nameColored FROM names WHERE userID = ${targUserID} ORDER BY useCount DESC LIMIT 15" );
-  $namesq->execute;
+  my $namesq = $db->prepare_cached( "SELECT nameColored FROM names WHERE userID = ? ORDER BY useCount DESC LIMIT 15" );
+  $namesq->execute( $targUserID );
 
   my @aliases;
   while( my $ref = $namesq->fetchrow_hashref( ) )
