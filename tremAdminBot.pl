@@ -807,7 +807,7 @@ sub updateUsers
 
   if( $user = $usersq->fetchrow_hashref( ) )
   {
-    my $st = $db->prepare_cahced( "UPDATE users SET name=?, useCount=useCount+1, seenTime=?, ip=? WHERE userID=?" );
+    my $st = $db->prepare_cached( "UPDATE users SET name=?, useCount=useCount+1, seenTime=?, ip=? WHERE userID=?" );
     $st->execute( $name, $timestamp, $ip, $user->{ 'userID' } );
   }
   else
@@ -823,7 +823,7 @@ sub updateUsers
       $country = $gip->country_name;
     }
 
-    my $st = $db->prepare_cached( "INSERT INTO users ( name, GUID, useCount, seenTime, IP, city, region, country ) VALUES ( ?, ?, 1, ?, ?, ?, ?, ? )" );
+    my $st = $db->prepare_cached( "INSERT INTO users ( name, GUID, useCount, seenTime, IP, city, region, country ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ? )" );
     $st->execute( $name, $guid, 1, $timestamp, $ip, $city, $region, $country );
     $usersq->execute( $guid );
     $st->finish;
@@ -861,7 +861,7 @@ sub updateNames
   }
   else
   {
-    my $st = $db->prepare_cached( "INSERT INTO names ( name, nameColored, userID, useCount ) VALUES ( ?, ?, ?, 1 )" );
+    my $st = $db->prepare_cached( "INSERT INTO names ( name, nameColored, userID, useCount ) VALUES ( ?, ?, ?, ? )" );
     $st->execute( $name, $namec, $userID, 1 );
     $nameID = $db->last_insert_id( undef, undef, "names", "nameID" );
     $st->finish;
